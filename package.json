@@ -1,0 +1,21 @@
+{
+  "name": "dmhy-cli",
+  "version": "0.1.0",
+  "description": "动漫花园命令行搜索工具",
+  "main": "dmhy.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "bin": {
+    "dmhy": "./dmhy.js"
+  },
+  "author": "beilunyang",
+  "license": "MIT",
+  "dependencies": {
+    "cheerio": "^0.22.0",
+    "clipboardy": "^0.1.2",
+    "colors": "^1.1.2",
+    "request": "^2.79.0",
+    "yargs": "^6.5.0"
+  }
+}
