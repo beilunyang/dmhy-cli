@@ -4,21 +4,31 @@ const cheerio = require('cheerio');
 const colors = require('colors');
 const clipboardy = require('clipboardy');
 const argv = require('yargs')
-			.default('c', 0)
-			.default('o', 'date-desc')
-			.alias('c', 'cate')
-			.describe('c', '在下列分类中搜索')
-			.choices('c', [0, 2, 31, 3, 41, 42, 4, 43, 44, 15, 6, 7, 9, 17, 18, 19, 20, 21, 12, 1])
-			.alias('o', 'order')
-			.describe('o', '按下列顺序排序')
-			.choices('o', ['date-desc', 'date-asc', 'rel'])
-			.alias('s', 'search')
-			.describe('s', '搜索标题')
-			.demand(['s'])
-			.usage('Usage: $0 -s [标题] -o [排序方式] -c [分类] -h [帮助]')
-			.help('h')
-			.alias('h', 'help')
-			.argv;
+  .usage('Usage: $0 -s [标题] -o [排序方式] -c [分类] -h [帮助]')
+  .options({
+    'c': {
+      default: 0,
+      alias: 'cate',
+      describe: '在下列分類下搜索:\n0=>全部 1=>其他 2=>动画 3=>漫画 4=>音乐 6=>日剧 7=>RAW ' +
+      '9=>游戏 17=>电脑游戏 18=>电视游戏 19=>掌机游戏 20=>网络游戏 21=>游戏周边 31=>季度全集 ' +
+      '41=>港台漫画 42=>日文原版 43=>动漫音乐 44=>同人音乐',
+      choices: [0, 1, 2, 3, 4, 6, 7, 9, 12, 15, 17, 18, 19, 20, 21, 31, 41, 42, 43, 44]
+    },
+    'o': {
+      default: 'date-desc',
+      alias: 'order',
+      describe: '按下列順序排序',
+      choices: ['date-desc', 'date-asc', 'rel']
+    },
+    's': {
+      alias: 'search',
+      describe: '搜索標題',
+      demand: true
+    }
+  })
+  .help('h')
+  .alias('h', 'help')
+  .argv;
 
 
 class Dmhy {
@@ -38,9 +48,9 @@ class Dmhy {
 			} else if (msg === 'n') {
 				this.nextSearch();
 			} else if (num && num > 0 && num <= this.result.length) {
-				clipboardy.write(this.result[num].magnet)
+				clipboardy.write(this.result[num-1].magnet)
 					.then(() => {
-						console.log(colors.green('成功复制到剪贴板'))
+						console.log(colors.green('成功复制磁力链接到剪贴板'));
 						this.ask();
 					})
 					.catch((err) => {
@@ -55,40 +65,50 @@ class Dmhy {
 	}
 
 	search() {
-		const url = `http://share.dmhy.org/topics/list/page/${this.page}?keyword=${argv.s}&sort_id=${argv.c}&team_id=0&order=${argv.o}`;
+		const url = `http://share.dmhy.org/topics/list/page/${this.page}?keyword=${encodeURIComponent(argv.s)}&sort_id=${argv.c}&team_id=0&order=${argv.o}`;
 		console.log(`\n => searching for ${colors.blue(argv.s)}\n`);
-		request(url,  (err, res, body) => {
-			if (err) return console.error(err);
+    request(url,  (err, res, body) => {
+			if (err) {
+			  console.error(err);
+			  console.log(colors.red('搜索失败，请重新尝试'));
+        process.exit(1);
+      }
 
 			if (res.statusCode === 200) {
-				const self = this;
 				const $ = cheerio.load(body);
-				const nav = [];
-				$('a', '.nav_title > .fl ').each(function () {
-					nav.push($(this).attr('href'));
+				const nav = $('a', '.nav_title > .fl ').map(function () {
+					return $(this).attr('href');
 				});
-				$('tr', 'tbody').each(function () {
-					const item = {};
-					const tds = $(this).find('td');
-					item.pubtime = tds.first().find('span').text();
-					item.category = tds.eq(1).text();
-					item.tag = tds.eq(2).find('.tag').text();
-					item.title = tds.eq(2).children('a').text().trim();
-					item.magnet = tds.eq(3).children('a').attr('href');
-					item.size = tds.eq(4).text();
-					item.btnum = tds.eq(5).text();
-					item.downum = tds.eq(6).text();
-					item.finish = tds.eq(7).text();
-					item.publisher = tds.eq(8).text();
-					self.result.push(item);
-				});
-				this.printResult(this.result, nav);
+
+        const pageResult = $('tr', 'tbody').map(function () {
+          const item = {};
+          const tds = $(this).find('td');
+          item.magnet = tds.eq(3).children('a').attr('href');
+          if (item.magnet) {
+            item.pubtime = tds.first().find('span').text();
+            item.category = tds.eq(1).text();
+            item.tag = tds.eq(2).find('.tag').text();
+            item.title = tds.eq(2).children('a').text().trim();
+            item.size = tds.eq(4).text();
+            item.btnum = tds.eq(5).text();
+            item.downum = tds.eq(6).text();
+            item.finish = tds.eq(7).text();
+            item.publisher = tds.eq(8).text();
+            return item;
+          }
+        }).get();
+        pageResult.nav = nav;
+        this.result.push(pageResult);
+				this.printResult(pageResult);
 			}
 		});
 	}
 
 	prevSearch() {
 		if (this.canPrev) {
+		  if (this.result[--this.page]) {
+        return this.printResult(this.result[this.page]);
+      }
 			this.page--;
 			return this.search();
 		}
@@ -98,7 +118,10 @@ class Dmhy {
 
 	nextSearch() {
 		if (this.canNext) {
-			this.page++;
+			if (this.result[this.page]) {
+			  return this.printResult(this.result[this.page++]);
+      }
+      this.page++;
 			return this.search();
 		}
 		console.log(colors.yellow('已经到底~\\(≧▽≦)/~啦'));
@@ -110,32 +133,34 @@ class Dmhy {
 		process.stdin.resume();
 	}
 
-	printResult(result, nav) {
+
+	printResult(result) {
 		if (result.length > 0) {
 			result.forEach((item, idx) => {
 				const regx = new RegExp(argv.s, 'gi');
 				console.log(`  ${colors.blue(idx + 1)}  ${item.title.replace(regx, colors.blue(argv.s))}\n`);
 			});
 
-			if (nav) {
-				if (nav.length === 1) {
-					const p = nav[0].match(/list\/page\/(\d+)\?/)[1];
-					if (p < this.page) {
-						this.canPrev = true;
-						this.canNext = false;
-						return console.log(`  上一页 第${this.page}页`);
-					}
-					this.canNext = true;
-					this.canPrev = false;
-					console.log(`   第${this.page}页 下一页`);
-				}
+      const nav = result.nav;
+      if (nav) {
+        if (nav.length === 1) {
+          const p = nav[0].match(/list\/page\/(\d+)\?/)[1];
+          if (p < this.page) {
+            this.canPrev = true;
+            this.canNext = false;
+            return console.log(`  上一页 第${this.page}页`);
+          }
+          this.canNext = true;
+          this.canPrev = false;
+          console.log(`   第${this.page}页 下一页`);
+        }
 
-				if (nav.length === 2) {
-					this.canNext = true;
-					this.canPrev = true;
-					console.log(`上一页 第${this.page}页 下一页`);
-				}
-			}
+        if (nav.length === 2) {
+          this.canNext = true;
+          this.canPrev = true;
+          console.log(`上一页 第${this.page}页 下一页`);
+        }
+      }
 
 		} else {
 			console.log(` 没有找到${colors.yellow(argv.s)}相关的内容`);
@@ -146,6 +171,8 @@ class Dmhy {
 
 const cli = new Dmhy();
 cli.search();
+
+
 
 
 
